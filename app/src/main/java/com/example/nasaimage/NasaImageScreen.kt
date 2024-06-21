@@ -1,14 +1,23 @@
 package com.example.nasaimage
 
 import android.graphics.drawable.BitmapDrawable
+import android.os.Build
+import android.util.Log
+import android.view.View
+import android.view.WindowInsetsController
+import androidx.activity.ComponentActivity
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
@@ -27,11 +36,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.view.WindowCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.palette.graphics.Palette
@@ -45,6 +57,7 @@ import java.util.Locale
 @Composable
 fun NasaImageScreen(
     modifier: Modifier = Modifier,
+    innerPadding: PaddingValues,
     viewModel: NasaImageViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.apodUiState.collectAsStateWithLifecycle()
@@ -52,13 +65,52 @@ fun NasaImageScreen(
     val currentDate = remember {
         SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
     }
-    LaunchedEffect(key1 =  currentDate) {
-        viewModel.fetchApod(currentDate)
-        
+
+    val selectedDate = remember { currentDate }
+    val activity = LocalContext.current as ComponentActivity
+
+    val window = activity.window
+    window.insetsController?.setSystemBarsAppearance(
+        0,
+        WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+    )
+
+    LaunchedEffect(key1 = selectedDate) {
+        viewModel.fetchApod(selectedDate)
     }
+
+    val FADE_IN_MILIS = 2000
+
+    var dominantColor by remember { mutableStateOf(Color.Gray) }
+    var lightMutedColor by remember { mutableStateOf(Color.LightGray) }
+    var topTextColor by remember {
+        mutableStateOf(Color.White)
+    }
+
+    val animatedDominantColor by animateColorAsState(
+        targetValue = dominantColor,
+        animationSpec = tween(durationMillis = FADE_IN_MILIS)
+    )
+    val animatedLightMutedColor by animateColorAsState(
+        targetValue = lightMutedColor,
+        animationSpec = tween(durationMillis = FADE_IN_MILIS)
+    )
+    val animatedTopTextColor by animateColorAsState(
+        targetValue = topTextColor,
+        animationSpec = tween(durationMillis = FADE_IN_MILIS)
+    )
+    val gradientBrush = Brush.verticalGradient(
+        colors = listOf(
+            animatedDominantColor,
+            animatedLightMutedColor
+        )
+    )
     Box(
         modifier = modifier
-            .fillMaxSize(), contentAlignment = Alignment.Center
+            .fillMaxSize()
+            .background(gradientBrush)
+            .padding(innerPadding),
+        contentAlignment = Alignment.Center
     ) {
         when (uiState) {
             is ApodUiState.Loading -> {
@@ -71,44 +123,25 @@ fun NasaImageScreen(
                 val configuration = LocalConfiguration.current
                 val screenHeight = configuration.screenHeightDp.dp
 
-                var gradientBrush by remember {
-                    mutableStateOf(
-                        Brush.verticalGradient(
-                            listOf(
-                                Color.Gray,
-                                Color.LightGray
-                            )
-                        )
-                    )
-                }
-
-                var topTextColor by remember {
-                    mutableStateOf(Color.White)
-                }
-
-
-
-                ElevatedCard(
+                Card(
                     modifier = modifier
-                        .fillMaxWidth()
-                        .background(gradientBrush),
+                        .fillMaxWidth(),
                     colors = CardDefaults.elevatedCardColors(containerColor = Color.Transparent)
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(gradientBrush)
                             .padding(all = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
                         Text(
                             text = apod.date,
-                            style = MaterialTheme.typography.labelLarge.copy(color = topTextColor)
+                            style = MaterialTheme.typography.labelLarge.copy(color = animatedTopTextColor)
                         )
 
                         Text(
                             text = apod.title,
-                            style = MaterialTheme.typography.headlineSmall.copy(color = topTextColor),
+                            style = MaterialTheme.typography.headlineSmall.copy(color = animatedTopTextColor),
                             overflow = TextOverflow.Ellipsis,
                             maxLines = 2,
                         )
@@ -118,7 +151,7 @@ fun NasaImageScreen(
                         AsyncImage(
                             ImageRequest.Builder(LocalContext.current)
                                 .data(apod.url)
-                                .crossfade(true)
+                                .crossfade(FADE_IN_MILIS)
                                 .allowHardware(false)
                                 .build(),
                             contentDescription = apod.title,
@@ -126,21 +159,10 @@ fun NasaImageScreen(
                             onSuccess = { success ->
                                 val bitmap = (success.result.drawable as BitmapDrawable).bitmap
                                 val palette = Palette.from(bitmap).generate()
-                                val dominantColor = palette.getDominantColor(0)
-                                val lightMutedColor = palette.getLightMutedColor(0)
-                                gradientBrush = Brush.verticalGradient(
-                                    colors = listOf(
-                                        Color(dominantColor),
-                                        Color(lightMutedColor)
-                                    )
-                                )
-                                topTextColor =
-                                    palette.darkMutedSwatch?.titleTextColor?.let {
-                                        Color(it)
-                                    }
-                                        ?: Color.White
-
-
+                                dominantColor = Color(palette.getDominantColor(0))
+                                lightMutedColor = Color(palette.getLightMutedColor(0))
+                                topTextColor = palette.darkMutedSwatch?.titleTextColor?.let {
+                                        Color(it) } ?: Color.White
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -160,7 +182,7 @@ fun NasaImageScreen(
             is ApodUiState.Error -> {
                 Column {
                     Text(text = "Sorry. We couldn't fetch the image of the day")
-                    FilledTonalButton(onClick = { viewModel.fetchApod(currentDate) }) {
+                    FilledTonalButton(onClick = { viewModel.fetchApod(selectedDate) }) {
                         Text(text = "Retry")
                     }
 
